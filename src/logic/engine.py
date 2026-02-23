@@ -1,7 +1,7 @@
 import numpy as np
 import cv2
 import pandas as pd
-from .shapes import create_fov_mask, create_antenna_mask, place_shape
+from .shapes import create_fov_mask, create_antenna_mask, place_shape, process_custom_shape
 import random
 
 def run_optimization(target_mask, sensor_type, num_sensors, sensor_range_m, map_width_m, n_experiments):
@@ -10,18 +10,21 @@ def run_optimization(target_mask, sensor_type, num_sensors, sensor_range_m, map_
     """
     h, w = target_mask.shape
     scale = w / map_width_m  # pixels per meter
-    radius_px = int(sensor_range_m * scale)
-    
     # Create the base shape template
-    if sensor_type == "Camera FOV (90°)":
-        shape_template = create_fov_mask(radius_px, 90, 0, w, h)
-    elif sensor_type == "Camera FOV (120°)":
-        shape_template = create_fov_mask(radius_px, 120, 0, w, h)
-    elif sensor_type == "Antenna Lobe":
-        shape_template = create_antenna_mask(radius_px, w, h)
-    else: # Default Circle/Omni
-        shape_template = np.zeros((radius_px*2, radius_px*2), dtype=np.uint8)
-        cv2.circle(shape_template, (radius_px, radius_px), radius_px, 255, -1)
+    if sensor_type == "Custom Shape" and sensor_range_m is not None:
+        shape_template = sensor_range_m # Mask passed directly
+        radius_px = shape_template.shape[0] // 2
+    else:
+        radius_px = int(sensor_range_m * scale)
+        if sensor_type == "Camera FOV (90°)":
+            shape_template = create_fov_mask(radius_px, 90, 0, w, h)
+        elif sensor_type == "Camera FOV (120°)":
+            shape_template = create_fov_mask(radius_px, 120, 0, w, h)
+        elif sensor_type == "Antenna Lobe":
+            shape_template = create_antenna_mask(radius_px, w, h)
+        else: # Default Circle/Omni
+            shape_template = np.zeros((radius_px*2, radius_px*2), dtype=np.uint8)
+            cv2.circle(shape_template, (radius_px, radius_px), radius_px, 255, -1)
 
     best_coverage_pct = -1
     best_state = None

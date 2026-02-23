@@ -6,10 +6,9 @@ def create_fov_mask(radius_px, fov_deg, angle_deg, width, height):
     """
     Creates a mask for a Field of View (sector).
     """
-    mask = np.zeros((height, width), dtype=np.uint8)
     center = (radius_px, radius_px)
     
-    # Draw sector on a local small canvas to avoid large memory usage for a single shape template
+    # Draw sector on a local small canvas
     canvas_size = radius_px * 2
     temp_mask = np.zeros((canvas_size, canvas_size), dtype=np.uint8)
     
@@ -19,6 +18,46 @@ def create_fov_mask(radius_px, fov_deg, angle_deg, width, height):
     cv2.ellipse(temp_mask, center, (radius_px, radius_px), 0, start_angle, end_angle, 255, -1)
     
     return temp_mask
+
+def process_custom_shape(image_data, range_m, map_width_m):
+    """
+    Processes a user-drawn or uploaded image into a sensor mask.
+    The center of the sensor is assumed to be the center of the image.
+    """
+    if image_data is None:
+        return None
+    
+    # Handle ImageEditor output or simple Image
+    if isinstance(image_data, dict):
+        # Merge layers if it's from an editor
+        layers = image_data.get("layers", [])
+        bg = image_data.get("background", None)
+        
+        if layers:
+            # Use the first layer alpha/content as the shape
+            img = layers[0].convert("RGBA")
+        elif bg:
+            img = bg.convert("RGBA")
+        else:
+            return None
+    else:
+        img = image_data.convert("RGBA")
+
+    # Convert to grayscale mask
+    np_img = np.array(img)
+    if np_img.shape[2] == 4:
+        # Use alpha channel if present
+        mask = np_img[:, :, 3]
+    else:
+        mask = cv2.cvtColor(np_img, cv2.COLOR_RGBA2GRAY)
+    
+    # Threshold to binary
+    _, mask = cv2.threshold(mask, 1, 255, cv2.THRESH_BINARY)
+    
+    # Resize mask based on range_m
+    # We want the 'width' of the mask image to represent 2*range_m in real world?
+    # Actually, let's just resize it so it fits the radius_px scaling logic.
+    return mask
 
 def create_antenna_mask(radius_px, width, height):
     """

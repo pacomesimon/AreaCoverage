@@ -3,8 +3,9 @@ import numpy as np
 import cv2
 from PIL import Image
 from src.logic.engine import run_optimization
+from src.logic.shapes import process_custom_shape
 
-def process_coverage(image_data, sensor_type, num_sensors, sensor_range, map_width, n_experiments):
+def process_coverage(image_data, sensor_type, num_sensors, sensor_range, map_width, n_experiments, custom_shape_data):
     if image_data is None:
         return None, 0, None
     
@@ -30,12 +31,36 @@ def process_coverage(image_data, sensor_type, num_sensors, sensor_range, map_wid
     if np.sum(target_mask) == 0:
         return bg_np, 0, "Error: No target area detected. Use the brush to highlight the zone to cover."
 
+    # Handle Custom Shape Logic
+    final_sensor_spec = float(sensor_range)
+    if sensor_type == "Custom Shape":
+        if custom_shape_data is None:
+            return bg_np, 0, "Error: Please upload or draw a custom shape in the accordion."
+        
+        scale = w / float(map_width)
+        custom_range_px = int(float(sensor_range) * scale)
+        
+        # Process shape to binary mask
+        custom_mask = process_custom_shape(custom_shape_data, sensor_range, map_width)
+        if custom_mask is None:
+             return bg_np, 0, "Error: Failed to process custom shape."
+        
+        # Resize custom mask to match custom_range_px (radius of influence)
+        # We assume the custom mask's larger dimension represents 2 * sensor_range
+        ch, cw = custom_mask.shape
+        target_size = custom_range_px * 2
+        # Avoid zero size
+        target_size = max(target_size, 4)
+        
+        custom_mask = cv2.resize(custom_mask, (target_size, target_size), interpolation=cv2.INTER_NEAREST)
+        final_sensor_spec = custom_mask # Pass the mask instead of range
+
     # Run optimization
     best_mask, best_pct, results_df = run_optimization(
         target_mask, 
         sensor_type, 
         int(num_sensors), 
-        float(sensor_range), 
+        final_sensor_spec, 
         float(map_width), 
         int(n_experiments)
     )
@@ -120,6 +145,7 @@ def create_ui():
                         type="pil",
                         sources=["upload", "clipboard"],
                         brush=gr.Brush(colors=["#00FF00"], default_size=25),
+                        value = "./assets/images/map.jpg",
                         layers=True,
                         canvas_size=(800, 600)
                     )
@@ -129,16 +155,29 @@ def create_ui():
                 with gr.Group():
                     gr.Markdown("#### ⚙️ Simulation Settings")
                     sensor_type = gr.Dropdown(
-                        choices=["Omni-directional (Circle)", "Camera FOV (90°)", "Camera FOV (120°)", "Antenna Lobe"],
+                        choices=["Omni-directional (Circle)", "Camera FOV (90°)", "Camera FOV (120°)", "Antenna Lobe", "Custom Shape"],
                         value="Camera FOV (90°)",
                         label="Sensor Pattern"
                     )
-                    num_sensors = gr.Number(value=5, label="Number of Sensors", precision=0)
-                    sensor_range = gr.Number(value=20, label="Sensor Range (m)")
-                    map_width = gr.Number(value=100, label="Total Map Width (m)")
-                    n_experiments = gr.Slider(minimum=10, maximum=1000, value=200, step=10, label="Simulation Quality (N Experiments)")
-                    
-                    run_btn = gr.Button("🚀 Run Simulation", variant="primary", elem_id="run-btn")
+                
+                with gr.Accordion("🎨 Custom Shape Definition", open=False):
+                    gr.Markdown("Define your own radiation pattern. The sensor center is the center of the image.")
+                    custom_shape_editor = gr.ImageEditor(
+                        label="Draw/Upload Shape",
+                        type="pil",
+                        sources=["upload", "clipboard"],
+                        value = "./assets/images/polar.jpg",
+                        brush=gr.Brush(colors=["#FFFFFF"], default_size=15),
+                        layers=True,
+                        canvas_size=(300, 300)
+                    )
+
+                num_sensors = gr.Number(value=5, label="Number of Sensors", precision=0)
+                sensor_range = gr.Number(value=20, label="Standard Sensor Range (m)")
+                map_width = gr.Number(value=100, label="Total Map Width (m)")
+                n_experiments = gr.Slider(minimum=10, maximum=1000, value=200, step=10, label="Simulation Quality (N Experiments)")
+                
+                run_btn = gr.Button("🚀 Run Simulation", variant="primary", elem_id="run-btn")
 
         with gr.Row():
             with gr.Column(scale=2):
@@ -149,7 +188,7 @@ def create_ui():
 
         run_btn.click(
             process_coverage,
-            inputs=[editor, sensor_type, num_sensors, sensor_range, map_width, n_experiments],
+            inputs=[editor, sensor_type, num_sensors, sensor_range, map_width, n_experiments, custom_shape_editor],
             outputs=[output_image, coverage_result, results_table]
         )
 
