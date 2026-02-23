@@ -108,16 +108,8 @@ def process_coverage(image_data, sensor_type, num_sensors, sensor_range, map_wid
 custom_css = """
 #header {
     text-align: center;
-    background: linear-gradient(90deg, #1e3a8a, #3b82f6);
-    color: white;
-    padding: 2rem;
-    border-radius: 12px;
-    margin-bottom: 2rem;
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2 -4px -1px rgba(0, 0, 0, 0.06);
 }
-.gradio-container {
-    max-width: 1200px !important;
-}
+
 #run-btn {
     background: linear-gradient(90deg, #10b981, #059669) !important;
     border: none !important;
@@ -131,8 +123,7 @@ custom_css = """
 def create_ui():
     with gr.Blocks() as demo:
         with gr.Row(elem_id="header"):
-            gr.Markdown("# 📡 Coverage Optimizer Pro")
-            gr.Markdown("### Intelligent Spatial Planning & Coverage Analysis")
+            gr.Markdown("## Spatial Planning & Coverage Analysis")
         
         with gr.Row():
             with gr.Column(scale=2):
@@ -189,8 +180,5 @@ def create_ui():
             inputs=[editor, sensor_type, num_sensors, sensor_range, map_width, n_experiments, custom_shape_editor],
             outputs=[output_image, coverage_result, results_table]
         )
-
-        gr.Markdown("---")
-        gr.Markdown("Developed with ❤️ for Coverage Optimization Tasks.")
-        
+   
     return demo, custom_css

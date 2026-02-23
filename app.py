@@ -6,5 +6,6 @@ if __name__ == "__main__":
     demo.launch(
         theme=gr.themes.Default(primary_hue="blue", spacing_size="sm"),
         css=custom_css,
+        footer_links=[],
         server_name="0.0.0.0"
     )
