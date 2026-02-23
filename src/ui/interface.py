@@ -55,56 +55,54 @@ def process_coverage(image_data, sensor_type, num_sensors, sensor_range, map_wid
         custom_mask = cv2.resize(custom_mask, (target_size, target_size), interpolation=cv2.INTER_NEAREST)
         final_sensor_spec = custom_mask # Pass the mask instead of range
 
-    # Run optimization
-    best_mask, best_pct, results_df = run_optimization(
+    # Run optimization (Streaming)
+    for best_mask, best_pct, results_df, current_iter in run_optimization(
         target_mask, 
         sensor_type, 
         int(num_sensors), 
         final_sensor_spec, 
         float(map_width), 
         int(n_experiments)
-    )
+    ):
+        if best_mask is None:
+            continue
 
-    if best_mask is None:
-        return bg_np, 0, "Optimization failed."
-
-    # Visualize result: Overlay best_mask on background
-    # We display covered area in a premium semi-transparent gradient or solid color
-    overlay = bg_np.copy()
-    
-    # 1. Show the Coverage Area (Blueish Glow)
-    coverage_color = np.array([0, 150, 255], dtype=np.uint8) # Premium Blue
-    overlay[best_mask > 0] = coverage_color
-    
-    # 2. Draw Sensor Centers and Directions
-    scale = w / map_width
-    radius_px = int(sensor_range * scale)
-    
-    for _, row in results_df.iterrows():
-        cx, cy = int(row['x_m'] * scale), int(row['y_m'] * scale)
-        angle = row['angle_deg']
+        # Visualize result: Overlay best_mask on background
+        overlay = bg_np.copy()
         
-        # Draw sensor point
-        cv2.circle(overlay, (cx, cy), 5, (255, 255, 255), -1)
-        cv2.circle(overlay, (cx, cy), 6, (0, 0, 0), 1)
+        # 1. Show the Coverage Area (Blueish Glow)
+        coverage_color = np.array([0, 150, 255], dtype=np.uint8) # Premium Blue
+        overlay[best_mask > 0] = coverage_color
         
-        # Draw orientation line
-        rad = np.radians(angle)
-        ex = int(cx + 15 * np.cos(-rad)) # anti-clockwise, for visualization
-        ey = int(cy + 15 * np.sin(-rad)) # anti-clockwise, for visualization
-        cv2.line(overlay, (cx, cy), (ex, ey), (255, 255, 255), 2)
+        # 2. Draw Sensor Centers and Directions
+        scale = w / map_width
+        
+        for _, row in results_df.iterrows():
+            cx, cy = int(row['x_m'] * scale), int(row['y_m'] * scale)
+            angle = row['angle_deg']
+            
+            # Draw sensor point
+            cv2.circle(overlay, (cx, cy), 5, (255, 255, 255), -1)
+            cv2.circle(overlay, (cx, cy), 6, (0, 0, 0), 1)
+            
+            # Draw orientation line
+            rad = np.radians(angle)
+            ex = int(cx + 15 * np.cos(-rad))
+            ey = int(cy + 15 * np.sin(-rad))
+            cv2.line(overlay, (cx, cy), (ex, ey), (255, 255, 255), 2)
 
-    # 3. Show the Target Area outline in Neon Green
-    contours_tuple = cv2.findContours(target_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    contours = contours_tuple[0] if len(contours_tuple) == 2 else contours_tuple[1]
-    cv2.drawContours(overlay, contours, -1, (0, 255, 0), 2)
-    
-    # Blend
-    alpha = 0.5
-    output_img = cv2.addWeighted(overlay, alpha, bg_np, 1 - alpha, 0)
+        # 3. Show the Target Area outline in Neon Green
+        contours_tuple = cv2.findContours(target_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        contours = contours_tuple[0] if len(contours_tuple) == 2 else contours_tuple[1]
+        cv2.drawContours(overlay, contours, -1, (0, 255, 0), 2)
+        
+        # Blend
+        alpha = 0.5
+        output_img = cv2.addWeighted(overlay, alpha, bg_np, 1 - alpha, 0)
 
-    # Add labels
-    return output_img, f"{best_pct}% Coverage achieved", results_df
+        # Yield results for streaming
+        status = f"{round(best_pct, 2)}% Coverage achieved (Experiment {current_iter}/{n_experiments})"
+        yield output_img, status, results_df
 
 # Design the Premium UI with Custom CSS
 custom_css = """

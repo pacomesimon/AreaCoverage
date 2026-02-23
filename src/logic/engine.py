@@ -34,7 +34,7 @@ def run_optimization(target_mask, sensor_type, num_sensors, sensor_range_m, map_
     if total_target_area == 0:
         return None, 0, []
 
-    for _ in range(n_experiments):
+    for i in range(n_experiments):
         current_mask = np.zeros((h, w), dtype=np.uint8)
         current_config = []
         
@@ -52,15 +52,20 @@ def run_optimization(target_mask, sensor_type, num_sensors, sensor_range_m, map_
         covered_area = np.sum(intersection > 0)
         coverage_pct = (covered_area / total_target_area) * 100
         
+        updated = False
         if coverage_pct > best_coverage_pct:
             best_coverage_pct = coverage_pct
             best_state = current_mask.copy()
             best_config = current_config
-            
-    # Prepare results for table (convert px to meters)
-    results_df = pd.DataFrame(best_config)
-    results_df['x_m'] = (results_df['x'] / scale).round(2)
-    results_df['y_m'] = (results_df['y'] / scale).round(2)
-    results_df['angle_deg'] = results_df['angle'].round(1)
-    
-    return best_state, best_coverage_pct, results_df[['x_m', 'y_m', 'angle_deg']]
+            updated = True
+        
+        # Yield intermediate results frequently (e.g., every 5 iterations or on update)
+        if updated or (i % 5 == 0) or (i == n_experiments - 1):
+            results_df = pd.DataFrame(best_config)
+            if not results_df.empty:
+                results_df['x_m'] = (results_df['x'] / scale).round(2)
+                results_df['y_m'] = (results_df['y'] / scale).round(2)
+                results_df['angle_deg'] = results_df['angle'].round(1)
+                yield best_state, best_coverage_pct, results_df[['x_m', 'y_m', 'angle_deg']], i + 1
+            else:
+                yield best_state, best_coverage_pct, pd.DataFrame(), i + 1
