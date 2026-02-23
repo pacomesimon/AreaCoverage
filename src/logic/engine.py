@@ -2,9 +2,10 @@ import numpy as np
 import cv2
 import pandas as pd
 from .shapes import create_fov_mask, create_antenna_mask, place_shape, process_custom_shape
+from .dqn_logic import run_dqn_mlp_optimization
 import random
 
-def run_optimization(target_mask, sensor_type, num_sensors, sensor_range_m, map_width_m, n_experiments):
+def run_optimization(target_mask, sensor_type, num_sensors, sensor_range_m, map_width_m, n_experiments, method="Monte Carlo"):
     """
     Runs N experiments to find the best sensor placement.
     """
@@ -25,6 +26,10 @@ def run_optimization(target_mask, sensor_type, num_sensors, sensor_range_m, map_
         else: # Default Circle/Omni
             shape_template = np.zeros((radius_px*2, radius_px*2), dtype=np.uint8)
             cv2.circle(shape_template, (radius_px, radius_px), radius_px, 255, -1)
+
+    if method == "Deep Q-Learning":
+        yield from run_dqn_mlp_optimization(target_mask, sensor_type, num_sensors, shape_template, map_width_m, n_experiments)
+        return
 
     best_coverage_pct = -1
     best_state = None

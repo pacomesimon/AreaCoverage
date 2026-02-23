@@ -5,7 +5,7 @@ from PIL import Image
 from src.logic.engine import run_optimization
 from src.logic.shapes import process_custom_shape
 
-def process_coverage(image_data, sensor_type, num_sensors, sensor_range, map_width, n_experiments, custom_shape_data):
+def process_coverage(image_data, sensor_type, num_sensors, sensor_range, map_width, n_experiments, custom_shape_data, optimization_method):
     if image_data is None:
         return None, 0, None
     
@@ -62,7 +62,8 @@ def process_coverage(image_data, sensor_type, num_sensors, sensor_range, map_wid
         int(num_sensors), 
         final_sensor_spec, 
         float(map_width), 
-        int(n_experiments)
+        int(n_experiments),
+        optimization_method
     ):
         if best_mask is None:
             continue
@@ -148,6 +149,12 @@ def create_ui():
                         value="Camera FOV (90°)",
                         label="Sensor Pattern"
                     )
+                    
+                    optimization_method = gr.Dropdown(
+                        choices=["Monte Carlo", "Deep Q-Learning"],
+                        value="Monte Carlo",
+                        label="Optimization Method"
+                    )
                 
                 with gr.Accordion("🎨 Custom Shape Definition", open=False):
                     gr.Markdown("Define your own radiation pattern. The sensor center is the center of the image.")
@@ -177,7 +184,10 @@ def create_ui():
 
         run_btn.click(
             process_coverage,
-            inputs=[editor, sensor_type, num_sensors, sensor_range, map_width, n_experiments, custom_shape_editor],
+            inputs=[
+                editor, sensor_type, num_sensors, sensor_range, map_width, 
+                n_experiments, custom_shape_editor, optimization_method
+            ],
             outputs=[output_image, coverage_result, results_table]
         )
    
