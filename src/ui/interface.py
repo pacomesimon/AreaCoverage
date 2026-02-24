@@ -102,7 +102,8 @@ def process_coverage(image_data, sensor_type, num_sensors, sensor_range, map_wid
         output_img = cv2.addWeighted(overlay, alpha, bg_np, 1 - alpha, 0)
 
         # Yield results for streaming
-        status = f"{round(best_pct, 2)}% Coverage achieved (Experiment {current_iter}/{n_experiments})"
+        pct_display = f"{round(best_pct, 2)}%" if isinstance(best_pct, (int, float)) else str(best_pct)
+        status = f"{pct_display} Coverage achieved (Experiment {current_iter}/{n_experiments})"
         yield output_img, status, results_df
 
 # Design the Premium UI with Custom CSS
@@ -171,9 +172,9 @@ def create_ui():
                 num_sensors = gr.Number(value=5, label="Number of Sensors", precision=0)
                 sensor_range = gr.Number(value=20, label="Standard Sensor Range (m)")
                 map_width = gr.Number(value=100, label="Total Map Width (m)")
-                n_experiments = gr.Slider(minimum=10, maximum=1000, value=200, step=10, label="Simulation Quality (N Experiments)")
+                n_experiments = gr.Slider(minimum=10, maximum=1000, value=100, step=10, label="Simulation Quality (N Experiments)")
                 
-                run_btn = gr.Button("🚀 Run Simulation", variant="primary", elem_id="run-btn")
+                run_btn = gr.Button("Run Simulation", variant="primary", elem_id="run-btn")
 
         with gr.Row():
             with gr.Column(scale=2):

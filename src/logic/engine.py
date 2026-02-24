@@ -47,7 +47,8 @@ def run_optimization(target_mask, sensor_type, num_sensors, sensor_range_m, map_
             # Random position and rotation
             target_indices = np.argwhere(target_mask > 0)
             y, x = target_indices[random.randrange(len(target_indices))]
-            angle = random.uniform(0, 360)
+            centroid = np.mean(target_indices, axis=0)
+            angle = np.degrees(np.arctan2(-y + centroid[0], x - centroid[1]))
             
             place_shape(current_mask, shape_template, x, y, angle)
             current_config.append({'x': x, 'y': y, 'angle': angle})

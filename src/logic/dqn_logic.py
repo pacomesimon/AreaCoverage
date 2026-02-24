@@ -8,14 +8,15 @@ import pandas as pd
 from .shapes import place_shape
 
 class MLP_QNetwork(nn.Module):
-    def __init__(self, input_size, num_actions):
+    def __init__(self, input_size=2, num_outputs=2):
         super(MLP_QNetwork, self).__init__()
+        features_n = 256
         self.net = nn.Sequential(
-            nn.Linear(input_size, 128),
+            nn.Linear(input_size, features_n),  
             nn.ReLU(),
-            nn.Linear(128, 128),
+            nn.Linear(features_n, features_n),
             nn.ReLU(),
-            nn.Linear(128, num_actions)
+            nn.Linear(features_n, num_outputs)
         )
 
     def forward(self, x):
@@ -30,98 +31,105 @@ def run_dqn_mlp_optimization(target_mask, sensor_type, num_sensors, shape_templa
     h, w = target_mask.shape
     scale = w / map_width_m
     
-    # State size: 3 values per sensor (x, y, angle)
-    state_size = num_sensors * 3
-    # Actions: 6 possible shifts per sensor (+x, -x, +y, -y, +angle, -angle)
-    num_actions_per_sensor = 6
-    num_total_actions = num_sensors * num_actions_per_sensor
+    # The model transforms any (x,y) -> (dx,dy)
+    state_size = 2
+    num_outputs = 2
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = MLP_QNetwork(state_size, num_total_actions).to(device)
-    optimizer = optim.Adam(model.parameters(), lr=0.1)
+    model = MLP_QNetwork(state_size, num_outputs).to(device)
+    optimizer = optim.SGD(model.parameters(), lr=1e-50)
     criterion = nn.MSELoss()
     
     # Initial random configuration
     target_indices = np.argwhere(target_mask > 0)
     if len(target_indices) == 0:
         return
+    
+    centroid = np.mean(target_indices, axis=0)
         
     current_config = []
     for _ in range(num_sensors):
-        y_px, x_px = target_indices[random.randrange(len(target_indices))]
-        current_config.append({'x': float(x_px), 'y': float(y_px), 'angle': random.uniform(0, 360)})
+        std = np.std(target_indices, axis=0)
+        eligible = target_indices[np.all(np.abs(target_indices - centroid) <= (std*0.1), axis=1)]
+        y_px, x_px = eligible[np.random.randint(len(eligible))]
+        angle = np.degrees(np.arctan2(-y_px + centroid[0], x_px - centroid[1]))
+        current_config.append({'x': float(x_px), 'y': float(y_px), 'angle': float(angle)})
 
     def get_state(config):
-        state = []
-        for c in config:
-            state.extend([c['x']/w, c['y']/h, c['angle']/360.0])
-        return torch.FloatTensor(state).unsqueeze(0).to(device)
+        state = [[c['x']/w, c['y']/h] for c in config]
+        return torch.FloatTensor(state).to(device) # Shape: (num_sensors, 2)
 
-    def calculate_coverage(config):
+    def calculate_metrics(config):
+        accumulator = np.zeros((h, w), dtype=np.float32)
         mask = np.zeros((h, w), dtype=np.uint8)
         for c in config:
-            place_shape(mask, shape_template, c['x'], c['y'], c['angle'])
+            temp_mask = np.zeros((h, w), dtype=np.uint8)
+            place_shape(temp_mask, shape_template, c['x'], c['y'], c['angle'])
+            accumulator += (temp_mask > 0).astype(np.float32)
+            mask = np.bitwise_or(mask, temp_mask)
+            
         intersection = np.bitwise_and(mask, target_mask)
-        return np.sum(intersection > 0), mask
+        covered_area = np.sum(intersection > 0)
+        overlap_area = np.sum(np.maximum(0, accumulator - 1))
+        return covered_area, overlap_area, mask
 
     total_target_area = np.sum(target_mask > 0)
     best_coverage_pct = -1
     best_state_mask = None
     best_config = [c.copy() for c in current_config]
     
-    epsilon = 0.5
+    epsilon = 1.0
     step_size_px = max(5, int(5 * scale)) # 5 meters or scaled
-    step_size_angle = 15.0
 
     for i in range(n_experiments):
         state_t = get_state(current_config)
         
-        # Epsilon-greedy action selection
-        if random.random() < epsilon:
-            action_idx = random.randint(0, num_total_actions - 1)
-        else:
-            with torch.no_grad():
-                q_values = model(state_t)
-                action_idx = torch.argmax(q_values).item()
+        # Get displacements from model
+        outputs = model(state_t)
         
-        sensor_idx = action_idx // num_actions_per_sensor
-        move_type = action_idx % num_actions_per_sensor
+        # Exploration: Add Gaussian noise
+        noise = torch.randn_like(outputs) * epsilon
+        applied_actions = outputs + noise
         
-        # Apply action
+        # Convert to numpy for application
+        deltas = applied_actions.detach().cpu().numpy() * step_size_px # (num_sensors, 2)
+        
+        # Apply transformations to ALL sensors
         old_config = [c.copy() for c in current_config]
-        old_covered_area, _ = calculate_coverage(old_config)
+        old_covered_area, old_overlap, _ = calculate_metrics(old_config)
         
-        c = current_config[sensor_idx]
-        if move_type == 0: c['x'] = min(w, c['x'] + step_size_px)
-        elif move_type == 1: c['x'] = max(0, c['x'] - step_size_px)
-        elif move_type == 2: c['y'] = min(h, c['y'] + step_size_px)
-        elif move_type == 3: c['y'] = max(0, c['y'] - step_size_px)
-        elif move_type == 4: c['angle'] = (c['angle'] + step_size_angle) % 360
-        elif move_type == 5: c['angle'] = (c['angle'] - step_size_angle) % 360
+        for idx, c in enumerate(current_config):
+            dx, dy = deltas[idx]
+            c['x'] = float(np.clip(c['x'] + dx, 0, w))
+            c['y'] = float(np.clip(c['y'] + dy, 0, h))
+            # Automatically update angle based on new position
+            c['angle'] = float(np.degrees(np.arctan2(-c['y'] + centroid[0], c['x'] - centroid[1])))
         
-        new_covered_area, current_mask = calculate_coverage(current_config)
+        new_covered_area, new_overlap, current_mask = calculate_metrics(current_config)
         
         # Reward: change in coverage
         reward = (new_covered_area - old_covered_area) / total_target_area
+        
+        # Penalize intersection (overlap)
+        # We penalize the relative change in overlap to encourage dispersion
+        overlap_penalty = (new_overlap - old_overlap) / total_target_area
+        reward -= overlap_penalty * .001 # Penalty weight
+        
         # Bonus for high coverage
         coverage_pct = (new_covered_area / total_target_area) * 100
         reward += (coverage_pct / 100.0) * 0.1
         
-        # Simple Q-learning update
-        next_state_t = get_state(current_config)
-        with torch.no_grad():
-            target_q = reward + 0.3 * torch.max(model(next_state_t)).item()
+        # Policy update using reward as signal
+        # Loss = -reward * similarity(current_outputs, applied_actions)
+        # This reinforces applied_actions that yielded positive rewards
+        current_outputs = model(state_t)
+        loss = -(reward) * torch.sum((current_outputs - applied_actions.detach())**2)
         
-        q_values = model(state_t)
-        q_target = q_values.clone()
-        q_target[0, action_idx] = target_q
-        
-        loss = criterion(q_values, q_target)
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
         
-        epsilon = max(0.1, epsilon * 0.995)
+        epsilon = max(0.0, epsilon * 0.995)
         
         # Track best
         if coverage_pct > best_coverage_pct:
@@ -132,10 +140,18 @@ def run_dqn_mlp_optimization(target_mask, sensor_type, num_sensors, shape_templa
         else:
             updated = False
             
-        # Stream results
-        if updated or (i % 10 == 0) or (i == n_experiments - 1):
-            results_df = pd.DataFrame(best_config)
-            results_df['x_m'] = (results_df['x'] / scale).round(2)
-            results_df['y_m'] = (results_df['y'] / scale).round(2)
-            results_df['angle_deg'] = results_df['angle'].round(1)
-            yield best_state_mask, best_coverage_pct, results_df[['x_m', 'y_m', 'angle_deg']], i + 1
+        # Stream results: show current and best
+        results_df_curr = pd.DataFrame(current_config)
+        results_df_curr['x_m'] = (results_df_curr['x'] / scale).round(2)
+        results_df_curr['y_m'] = (results_df_curr['y'] / scale).round(2)
+        results_df_curr['angle_deg'] = results_df_curr['angle'].round(1)
+        
+        display_metric = f"{round(coverage_pct, 2)}% (Best: {round(best_coverage_pct, 2)}%)"
+        yield current_mask, display_metric, results_df_curr[['x_m', 'y_m', 'angle_deg']], i + 1
+
+    # Final yield: ensure the best overall result is the last thing emitted
+    results_df_best = pd.DataFrame(best_config)
+    results_df_best['x_m'] = (results_df_best['x'] / scale).round(2)
+    results_df_best['y_m'] = (results_df_best['y'] / scale).round(2)
+    results_df_best['angle_deg'] = results_df_best['angle'].round(1)
+    yield best_state_mask, f"{round(best_coverage_pct, 2)}%", results_df_best[['x_m', 'y_m', 'angle_deg']], n_experiments
