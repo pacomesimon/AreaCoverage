@@ -14,9 +14,15 @@ class MLP_QNetwork(nn.Module):
         self.net = nn.Sequential(
             nn.Linear(input_size, features_n),  
             nn.ReLU(),
-            nn.Linear(features_n, features_n),
+            nn.Linear(features_n, features_n//2),
             nn.ReLU(),
-            nn.Linear(features_n, num_outputs)
+            nn.Linear(features_n//2, features_n//4),
+            nn.ReLU(),
+            nn.Linear(features_n//4, features_n//8),
+            nn.ReLU(),
+            nn.Linear(features_n//8, features_n//16),
+            nn.ReLU(),
+            nn.Linear(features_n//16, num_outputs)
         )
 
     def forward(self, x):
@@ -50,7 +56,7 @@ def run_dqn_mlp_optimization(target_mask, sensor_type, num_sensors, shape_templa
     current_config = []
     for _ in range(num_sensors):
         std = np.std(target_indices, axis=0)
-        eligible = target_indices[np.all(np.abs(target_indices - centroid) <= (std*0.1), axis=1)]
+        eligible = target_indices[np.all(np.abs(target_indices - centroid) <= (std*1), axis=1)]
         y_px, x_px = eligible[np.random.randint(len(eligible))]
         angle = np.degrees(np.arctan2(-y_px + centroid[0], x_px - centroid[1]))
         current_config.append({'x': float(x_px), 'y': float(y_px), 'angle': float(angle)})
@@ -78,7 +84,7 @@ def run_dqn_mlp_optimization(target_mask, sensor_type, num_sensors, shape_templa
     best_state_mask = None
     best_config = [c.copy() for c in current_config]
     
-    epsilon = 1.0
+    epsilon = 0.5
     step_size_px = max(5, int(5 * scale)) # 5 meters or scaled
 
     for i in range(n_experiments):
@@ -113,7 +119,7 @@ def run_dqn_mlp_optimization(target_mask, sensor_type, num_sensors, shape_templa
         # Penalize intersection (overlap)
         # We penalize the relative change in overlap to encourage dispersion
         overlap_penalty = (new_overlap - old_overlap) / total_target_area
-        reward -= overlap_penalty * .001 # Penalty weight
+        reward -= overlap_penalty * 0.5 # Penalty weight
         
         # Bonus for high coverage
         coverage_pct = (new_covered_area / total_target_area) * 100
